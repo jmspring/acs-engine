@@ -272,7 +272,7 @@ write_files:
 - content: ''
   path: /etc/mesosphere/roles/azure
 - content: 'PROVISION_STR'
-  path: "/opt/zure/containers/provision.sh"
+  path: "/opt/azure/containers/provision.sh"
   permissions: "0744"
   owner: "root"
 - path: /var/lib/dcos/mesos-slave-common
