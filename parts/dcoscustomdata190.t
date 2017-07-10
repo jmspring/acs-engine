@@ -1,6 +1,22 @@
 bootcmd:
 - bash -c "if [ ! -f /var/lib/sdb-gpt ];then echo DCOS-5890;parted -s /dev/sdb mklabel
   gpt;touch /var/lib/sdb-gpt;fi"
+disk_setup:
+    ephemeral0:
+        table_type: gpt
+        layout: [45,45,10]
+        overwrite: True
+fs_setup:
+    - device: ephemeral0.1
+      filesystem: ext4
+    - device: ephemeral0.2
+      filesystem: ext4
+    - device: ephemeral0.3
+      filesystem: ext4
+mounts:
+    - ["ephemeral0.1", "/var/lib/mesos"]
+    - ["ephemeral0.2", "/var/lib/docker"]
+    - ["ephemeral0.3", "/var/tmp"]
 runcmd:
 - /usr/lib/apt/apt.systemd.daily
 - echo 2dd1ce17-079e-403c-b352-a1921ee207ee > /sys/bus/vmbus/drivers/hv_util/unbind # mitigation for bug https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1676635
@@ -59,7 +75,7 @@ runcmd:
   - unscd.service
 - sed -i "s/^Port 22$/Port 22\nPort 2222/1" /etc/ssh/sshd_config
 - service ssh restart 
-- /opt/azure/containers/ephemeral-disk-setup.sh
+- /opt/azure/containers/format-ephemeral.sh
 - /opt/azure/containers/provision.sh
 - - cp
   - -p
@@ -275,65 +291,20 @@ write_files:
   path: "/opt/azure/containers/provision.sh"
   permissions: "0744"
   owner: "root"
+- content: |
+    #!/bin/bash
+    for f in {1..3}; do
+        df -k | grep "/dev/sdb$f"
+        if [ $? -eq 0 ]; then
+            umount -f /dev/sdb$f
+        fi
+        mkfs.ext4 /dev/sdb$f
+    done
+    mount -a
+  path: "/opt/azure/containers/format-ephemeral.sh"
+  permissions: "0744"
+  owner: "root"
 - path: /var/lib/dcos/mesos-slave-common
   content: 'ATTRIBUTES_STR'
   permissions: "0644"
   owner: "root"
-- content: |
-    #!/bin/bash
-    set -x
-    DEVICE="/dev/sdb"
-    DEVICE_PARTS=(${DEVICE//\// })
-    DEVICE_BASE_NAME="${DEVICE_PARTS[1]}"
-    # remove / unmount any existing mounts
-    MOUNT_LINKS=$(ls -l /dev/disk/cloud/ | grep $DEVICE_BASE_NAME | grep "part" | sed -r "s/ {1,}/;/g" | cut -d";" -f9)
-    for ML in $MOUNT_LINKS; do
-        ML_PATH="/dev/disk/cloud/$ML"
-        grep "^$ML_PATH" /etc/fstab
-        if [ $? -eq 0 ]; then
-            # virtual link in fstab
-            umount -f $ML_PATH
-            cat /etc/fstab | grep -v "^$ML_PATH" > /tmp/new_mounts.tmp
-            mv /tmp/new_mounts.tmp /etc/fstab
-        fi
-    done
-    # Remove existing paritions
-    for v_partition in $(parted -s $DEVICE print | awk "/^ / {print 1}")
-    do
-        parted -s $DEVICE rm ${v_partition}
-    done
-    # Setup new partitioning
-    PARTITION_TYPE="gpt"
-    PARTITION_ARRAY=("/var/lib/mesos;ext4;45" "/var/lib/docker;ext4;45" "/var/tmp;ext4;10")
-    # Generate the partition type
-    parted -s $DEVICE mklabel $PARTITION_TYPE >& /dev/null
-    if [ $? -ne 0 ]; then
-        echo "Adding partitioning standard failed on $DEVICE"
-        exit 1
-    fi
-    # Create the paritions
-    PARTITION_NUMBER=1
-    PARTITION_START=0
-    for (( idx=0; idx<${#PARTITION_ARRAY[@]}; idx++ )); do
-        IFS=";" read -a PART_INFO <<< "${PARTITION_ARRAY[$idx]}"
-        # The assumption is that partitions are specified (semicolon separated) as:
-        #     <Mount point>;<File system>;<Percentage of disk>
-        # Partitions will be mounted per device in order.
-        MOUNT_POINT=${PART_INFO[0]}
-        FILE_SYSTEM=${PART_INFO[1]}
-        PERCENTAGE=${PART_INFO[2]}
-        PARTITION_END=$(($PARTITION_START + $PERCENTAGE))
-        parted -a opt $DEVICE mkpart primary "$FILE_SYSTEM" "$PARTITION_START%" "$PARTITION_END%"
-        PARTITION_DEVICE="$DEVICE$PARTITION_NUMBER"
-        if [ ! -e $MOUNT_POINT ]; then
-            mkdir -p $MOUNT_POINT
-        fi
-        echo "$PARTITION_DEVICE   $MOUNT_POINT    auto    defaults,nofail       0       2" >> /etc/fstab
-        mkfs.ext4 $PARTITION_DEVICE
-        PARTITION_START=$PARTITION_END
-        PARTITION_NUMBER=$(($PARTITION_NUMBER + 1))
-        mount $MOUNT_POINT
-    done
-  owner: root
-  path: "/opt/azure/containers/ephemeral-disk-setup.sh"
-  permissions: '0744'
