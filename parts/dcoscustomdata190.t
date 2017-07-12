@@ -307,6 +307,26 @@ write_files:
         done
         mount -a
     fi
+    # If there is a /var/tmp partition on the ephemeral disk, create a symlink such
+    # that the /var/log/mesos and /var/log/journal placed on the ephemeral disk.
+    VAR_TMP_PARTITION=`df -P /var/tmp | tail -1 | cut -d" " -f 1`
+    echo $VAR_TMP_PARTITION | grep "^$EPHEMERAL_DISK"
+    if [ $? -eq 0 ]; then
+        # Handle the /var/log/mesos directory
+        mkdir -p /var/tmp/log/mesos
+        if [ -d "/var/log/mesos" ]; then
+            cp -rp /var/log/mesos/* /var/tmp/log/mesos/
+            rm -rf /var/log/mesos
+        fi
+        ln -s /var/tmp/log/mesos /var/log/mesos
+        # Handle the /var/log/journal direcotry
+        mkdir -p /var/tmp/log/journal
+        if [ -d "/var/log/journal" ]; then
+            cp -rp /var/log/journal/* /var/tmp/log/journal/
+            rm -rf /var/log/journal
+        fi
+        ln -s /var/tmp/log/journal /var/log/journal
+    fi
   path: "/opt/azure/containers/setup_ephemeral_disk.sh"
   permissions: "0744"
   owner: "root"
