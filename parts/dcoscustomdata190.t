@@ -75,7 +75,7 @@ runcmd:
   - unscd.service
 - sed -i "s/^Port 22$/Port 22\nPort 2222/1" /etc/ssh/sshd_config
 - service ssh restart 
-- /opt/azure/containers/format-ephemeral.sh
+- /opt/azure/containers/setup_ephemeral_disk.sh
 - /opt/azure/containers/provision.sh
 - - cp
   - -p
@@ -293,15 +293,21 @@ write_files:
   owner: "root"
 - content: |
     #!/bin/bash
-    for f in {1..3}; do
-        df -k | grep "/dev/sdb$f"
-        if [ $? -eq 0 ]; then
-            umount -f /dev/sdb$f
-        fi
-        mkfs.ext4 /dev/sdb$f
-    done
-    mount -a
-  path: "/opt/azure/containers/format-ephemeral.sh"
+    # Check the partitions on /dev/sdb created by cloudinit and force a detach and
+    # reformat of the parition.  After which, all will be remounted.
+    EPHEMERAL_DISK="/dev/sdb"
+    PARTITIONS=`fdisk -l $EPHEMERAL_DISK | grep "^$EPHEMERAL_DISK" | cut -d" " -f1 | sed "s~$EPHEMERAL_DISK~~"`
+    if [ -n "$PARTITIONS" ]; then
+        for f in $PARTITIONS; do
+            df -k | grep "/dev/sdb$f"
+            if [ $? -eq 0 ]; then
+                umount -f /dev/sdb$f
+            fi
+            mkfs.ext4 /dev/sdb$f
+        done
+        mount -a
+    fi
+  path: "/opt/azure/containers/setup_ephemeral_disk.sh"
   permissions: "0744"
   owner: "root"
 - path: /var/lib/dcos/mesos-slave-common
