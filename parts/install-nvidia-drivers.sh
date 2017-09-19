@@ -1,5 +1,5 @@
 #!/bin/bash
-lspci | grep NVIDR > /dev/null
+lspci | grep -i nvidia > /dev/null
 if [ $? -eq 0 ]; then
   apt-get update
   apt-get install -y gcc
