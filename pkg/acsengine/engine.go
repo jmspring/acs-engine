@@ -1005,6 +1005,12 @@ func (t *TemplateGenerator) getTemplateFuncMap(cs *api.ContainerService) templat
 			}
 			return false
 		},
+		"HasGPU": func(profile *api.AgentPoolProfile) bool {
+			if strings.HasPrefix(profile.VMSize, "Standard_N") {
+				return true
+			}
+			return false
+		},
 		"HasLinuxAgents": func() bool {
 			for _, agentProfile := range cs.Properties.AgentPoolProfiles {
 				if agentProfile.IsLinux() {
